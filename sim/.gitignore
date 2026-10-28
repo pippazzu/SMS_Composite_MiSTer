@@ -1,0 +1,5 @@
+glue.svh
+tb.vvp
+*.vcd
+comp.vvp
+csync_sim.v

@@ -34,4 +34,11 @@ set_global_assignment -name MIF_FILE rtl/nvram_ff.mif
 set_global_assignment -name VHDL_FILE rtl/cart_eeprom.vhd
 set_global_assignment -name VHDL_FILE rtl/io.vhd
 set_global_assignment -name VHDL_FILE rtl/AudioMix.vhd
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/mark3_cvbs.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/composite_decoder.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/cvbs_resample.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/mark3_tv.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/cxa1145.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/sms_av_board.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/sms_cxa_cvbs.sv
 set_global_assignment -name SYSTEMVERILOG_FILE SMS.sv

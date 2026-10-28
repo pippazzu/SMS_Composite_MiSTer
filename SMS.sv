@@ -187,6 +187,7 @@ video_freak video_freak
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
 // XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXX XXXXXXXXXXX       XXXXXXX XXXX
+// Upper 64 bits: [119:112] Composite Filter
 
 `include "build_id.v"
 parameter CONF_STR = {
@@ -231,6 +232,11 @@ parameter CONF_STR = {
 	"d6P1oI,Vertical Crop,Disabled,216p(5x);",
 	"d6P1oJM,Crop Offset,0,2,4,8,10,12,-12,-10,-8,-6,-4,-2;",
 	"P1OUV,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
+	"P1-;",
+	"DBP1O[113:112],Composite Filter,Off,Budget TV,Premium TV;",
+	"DAP1O[116:114],Comp. Brightness,Japan,USA,More,Much More,Too Much;",
+	"DAP1O[118:117],Comp. Sharpness,Off,Low,Medium,High;",
+	"DAP1O[119],Comp. Encoder,Mark III,Master System;",
 	"P1-;",
 	"D2P1OD,Border,No,Yes;",
 	"P1OST,Masked Left Column,BG,Black,Cut;",
@@ -438,6 +444,7 @@ wire  [7:0] paddle_0, paddle_1;
 wire  [1:0] buttons;
 wire [10:0] ps2_key;
 wire [127:0] status;
+wire        use_composite, composite_available;
 reg  [127:0] status_in = 0;
 reg          status_set = 0;
 reg         sc3000_auto = 0;
@@ -491,7 +498,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(0)) hps_io
 	.status(status),
 	.status_in(status_in),
 	.status_set(status_set),
-	.status_menumask({status[25],systeme,~dbg_menu,en216p,status[13],~gun_en,~raw_serial,gg,~gg_avail,~bk_ena}),
+	.status_menumask({~composite_available,~use_composite,status[25],systeme,~dbg_menu,en216p,status[13],~gun_en,~raw_serial,gg,~gg_avail,~bk_ena}),
 	.forced_scandoubler(forced_scandoubler),
 	.new_vmode(pal),
 	.gamma_bus(gamma_bus),
@@ -1612,17 +1619,70 @@ wire [3:0] vid_r = se_pause_gate ? {1'b0, color[3:1]}  : color[3:0];
 wire [3:0] vid_g = se_pause_gate ? {1'b0, color[7:5]}  : color[7:4];
 wire [3:0] vid_b = se_pause_gate ? {1'b0, color[11:9]} : color[11:8];
 
-video_mixer #(.HALF_DEPTH(1), .LINE_LENGTH(300), .GAMMA(1)) video_mixer
+wire       gun_px = gun_en & gun_target && (~&gun_crosshair);
+wire [3:0] mix_r  = gun_px ? 4'hF : vid_r;
+wire [3:0] mix_g  = gun_px ? 4'h0 : vid_g;
+wire [3:0] mix_b  = gun_px ? 4'h0 : vid_b;
+
+/////////////////////////  COMPOSITE FILTER  /////////////////////////////
+// Kitrinx's composite_decoder (from NES_MiSTer) fed by a model of the Sega
+// Mark III video encoder (rtl/mark3_cvbs.sv, BA7230LS) or, with Comp. Encoder
+// on Master System, of the Master System's CXA1145 and its board networks
+// (rtl/composite/sms_cxa_cvbs.sv): the picture is
+// encoded to composite and decoded again by a TV model inside the core, so
+// it shows on HDMI and analog RGB alike. NTSC SMS only: no Game Gear (LCD),
+// no PAL (the Mark III has none), not with the picture rotated. The decoded
+// stream is two pixels per SMS pixel, so the scandoubler and HQ2x stay off.
+assign composite_available = ~pal & ~gg_video & no_rotate;
+assign use_composite = (status[113:112] != 2'd0) && composite_available;
+
+wire       tv_pix, tv_hs, tv_vs, tv_hb, tv_vb;
+wire [7:0] tv_r, tv_g, tv_b;
+mark3_tv mark3_tv
+(
+	.clk       (clk_sys),
+	.reset     (~use_composite),
+	.sc_ref    (ce_cpu),        // the Mark III subcarrier is the Z80 clock
+	.chroma_std(1'b0),          // BA7230LS typical levels, as the console
+	.ms        (status[119]),
+	.premium   (status[113:112] == 2'd2),
+	.brightness(status[116:114]),
+	.sharpness (status[118:117]),
+	.r_in      ({2{mix_r}}),
+	.g_in      ({2{mix_g}}),
+	.b_in      ({2{mix_b}}),
+	.hs_in     (HSync),
+	.vs_in     (VSync),
+	.de_in     (~(HBlank | VBlank)),
+	.hb_in     (HBlank),
+	.vb_in     (VBlank),
+	.pix       (tv_pix),
+	.r_out     (tv_r),
+	.g_out     (tv_g),
+	.b_out     (tv_b),
+	.hs_out    (tv_hs),
+	.vs_out    (tv_vs),
+	.hb_out    (tv_hb),
+	.vb_out    (tv_vb)
+);
+
+video_mixer #(.HALF_DEPTH(0), .LINE_LENGTH(300), .GAMMA(1)) video_mixer
 (
 	.*,
-	.scandoubler(scale || forced_scandoubler),
-	.hq2x(scale==1),
+	.ce_pix(use_composite ? tv_pix : ce_pix),
+	.scandoubler((scale || forced_scandoubler) && !use_composite),
+	.hq2x(scale==1 && !use_composite),
 	.freeze_sync(),
 
+	.HSync (use_composite ? tv_hs : HSync),
+	.VSync (use_composite ? tv_vs : VSync),
+	.HBlank(use_composite ? tv_hb : HBlank),
+	.VBlank(use_composite ? tv_vb : VBlank),
+
 	.VGA_DE(vga_de),
-	.R((gun_en & gun_target && (~&gun_crosshair)) ? 8'd255 : {2{vid_r}}),
-	.G((gun_en & gun_target && (~&gun_crosshair)) ? 8'd0   : {2{vid_g}}),
-	.B((gun_en & gun_target && (~&gun_crosshair)) ? 8'd0   : {2{vid_b}})
+	.R(use_composite ? tv_r : {2{mix_r}}),
+	.G(use_composite ? tv_g : {2{mix_g}}),
+	.B(use_composite ? tv_b : {2{mix_b}})
 );
 
 
