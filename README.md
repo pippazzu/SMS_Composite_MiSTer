@@ -1,6 +1,8 @@
-# [Sega Master System](https://en.wikipedia.org/wiki/Master_System)/[Game Gear](https://en.wikipedia.org/wiki/Game_Gear) for [MiSTer FPGA](https://mister-devel.github.io/MkDocs_MiSTer/) and [MiST](https://github.com/mist-devel/mist-board/wiki)
+# [Sega Master System](https://en.wikipedia.org/wiki/Master_System)/[Game Gear](https://en.wikipedia.org/wiki/Game_Gear) for [MiSTer FPGA](https://mister-devel.github.io/MkDocs_MiSTer/) and [MiST](https://github.com/mist-devel/mist-board/wiki), with composite video
 
 This core is a port of Ben's Sega Master System implementation for the Papilio. See [http://fpga-hacks.blogspot.de/](http://fpga-hacks.blogspot.de/).
+
+This fork adds the console's composite video: the picture a Mark III or an NTSC Master System sends through its composite output, decoded with Kitrinx's composite filters. See [Composite video](#composite-video).
 
 ## Features
 
@@ -19,6 +21,19 @@ This core is a port of Ben's Sega Master System implementation for the Papilio. 
 * Gear to Gear link cable over USERIO
 * BIOS Loading Support
 * Savestates
+
+## Composite video
+
+Based on Kitrinx's NES core implementation, built from Sega's schematics and the encoder data sheets; not yet measured against a real console. The Mark III's ROHM BA7230LS encoder and board filters from its data sheet and Sega's Mark III schematic; the Master System's Sony CXA1145 encoder from its data sheet (the model from the Mega Drive composite core) and its board filters from Sega's Master System IC board schematic, decoded with Kitrinx's composite filters. That schematic is the PAL board: the three capacitors that tune its filters are scaled to put them at the NTSC frequencies, which the NTSC board still has to confirm. Runs in step with the video signal, adding about a microsecond of delay. Technical notes: [docs/composite.md](docs/composite.md).
+
+Options, in **Audio & Video**:
+
+* **Composite Filter**: Off / Budget TV (notch filter, softer colour) / Premium TV (comb filter, sharper colour).
+* **Comp. Brightness**: Japan (the console's own black) / USA (a US set: the darkest shades crush to black) / More / Much More / Too Much.
+* **Comp. Sharpness**: Off / Low / Medium / High (the TV's sharpness knob).
+* **Comp. Encoder**: Mark III (BA7230LS) / Master System (CXA1145).
+
+The filter is for 15 kHz RGB CRTs and HDMI, and only for NTSC: it is greyed out for Game Gear, PAL and rotated System E games. While it is on, the scandoubler and HQ2x are bypassed. Nothing is removed from the main core.
 
 ## Where to Download
 
