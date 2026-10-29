@@ -13,9 +13,9 @@ reg [1:0] sharp;
 wire pix, ohs, ovs, ohb, ovb;
 wire [7:0] or_, og, ob;
 
-mark3_tv dut(.clk(clk), .reset(n < 16), .sc_ref(sc), .chroma_std(chroma_std), .premium(premium),
+mark3_tv dut(.clk(clk), .reset(n < 16), .sc_ref(sc), .chroma_std(chroma_std), .ms(1'b0), .premium(premium),
 	.brightness(bright), .sharpness(sharp), .r_in(r), .g_in(g), .b_in(b),
-	.hs_in(hs), .vs_in(vs), .hb_in(hb), .vb_in(vb),
+	.hs_in(hs), .vs_in(vs), .de_in(~(hb | vb)), .hb_in(hb), .vb_in(vb),
 	.pix(pix), .r_out(or_), .g_out(og), .b_out(ob), .hs_out(ohs), .vs_out(ovs), .hb_out(ohb), .vb_out(ovb));
 
 integer fs, fo, n, k, opt;

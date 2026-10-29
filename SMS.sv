@@ -1632,7 +1632,7 @@ wire [3:0] mix_b  = gun_px ? 4'h0 : vid_b;
 // encoded to composite and decoded again by a TV model inside the core, so
 // it shows on HDMI and analog RGB alike. NTSC SMS only: no Game Gear (LCD),
 // no PAL (the Mark III has none), not with the picture rotated. The decoded
-// stream is two pixels per SMS pixel, so the scandoubler and HQ2x stay off.
+// stream is four pixels per SMS pixel, so the scandoubler and HQ2x stay off.
 assign composite_available = ~pal & ~gg_video & no_rotate;
 assign use_composite = (status[113:112] != 2'd0) && composite_available;
 
@@ -1666,25 +1666,52 @@ mark3_tv mark3_tv
 	.vb_out    (tv_vb)
 );
 
-video_mixer #(.HALF_DEPTH(0), .LINE_LENGTH(300), .GAMMA(1)) video_mixer
+// Gamma before the mixer: the decoded pixels come every two or three clocks,
+// faster than video_mixer's gamma_corr (one lookup per clock, three per
+// pixel) can follow. gamma_fast looks up R, G and B at once, with the same
+// curve and the same one-pixel delay.
+wire       vm_ce = use_composite ? tv_pix : ce_pix;
+wire       g_hs, g_vs, g_hb, g_vb;
+wire [7:0] g_r, g_g, g_b;
+gamma_fast gamma
+(
+	.clk_vid   (CLK_VIDEO),
+	.ce_pix    (vm_ce),
+	.gamma_bus (gamma_bus),
+	.HSync     (use_composite ? tv_hs : HSync),
+	.VSync     (use_composite ? tv_vs : VSync),
+	.HBlank    (use_composite ? tv_hb : HBlank),
+	.VBlank    (use_composite ? tv_vb : VBlank),
+	.DE        (1'b0),
+	.RGB_in    (use_composite ? {tv_r, tv_g, tv_b} : {{2{mix_r}}, {2{mix_g}}, {2{mix_b}}}),
+	.HSync_out (g_hs),
+	.VSync_out (g_vs),
+	.HBlank_out(g_hb),
+	.VBlank_out(g_vb),
+	.DE_out    (),
+	.RGB_out   ({g_r, g_g, g_b})
+);
+
+wire [21:0] vm_gamma_bus;
+video_mixer #(.HALF_DEPTH(0), .LINE_LENGTH(300), .GAMMA(0)) video_mixer
 (
 	.*,
-	.ce_pix(use_composite ? tv_pix : ce_pix),
+	.gamma_bus(vm_gamma_bus),
+	.ce_pix(vm_ce),
 	.scandoubler((scale || forced_scandoubler) && !use_composite),
 	.hq2x(scale==1 && !use_composite),
 	.freeze_sync(),
 
-	.HSync (use_composite ? tv_hs : HSync),
-	.VSync (use_composite ? tv_vs : VSync),
-	.HBlank(use_composite ? tv_hb : HBlank),
-	.VBlank(use_composite ? tv_vb : VBlank),
+	.HSync (g_hs),
+	.VSync (g_vs),
+	.HBlank(g_hb),
+	.VBlank(g_vb),
 
 	.VGA_DE(vga_de),
-	.R(use_composite ? tv_r : {2{mix_r}}),
-	.G(use_composite ? tv_g : {2{mix_g}}),
-	.B(use_composite ? tv_b : {2{mix_b}})
+	.R(g_r),
+	.G(g_g),
+	.B(g_b)
 );
-
 
 /////////////////////////  STATE SAVE/LOAD  /////////////////////////////
 wire bk_save_write = nvram_we;

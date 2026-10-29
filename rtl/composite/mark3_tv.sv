@@ -1,8 +1,9 @@
 // Composite filter for the digital outputs: the VDP picture is encoded by the
 // Mark III encoder model (mark3_cvbs.sv), given the sync a MiSTer composite
 // cable would add, and decoded by Kitrinx's composite_decoder (NES_MiSTer),
-// all on clk_sys with no frame buffer. The decoded picture comes out at two
-// pixels per SMS pixel (10.74 MHz), with sync regenerated from the waveform.
+// all on clk_sys with no frame buffer. The decoded picture comes out at one
+// pixel every two decoder samples, four per SMS pixel (21.48 MHz), with sync
+// regenerated from the waveform.
 //
 // Levels follow the BA7230LS typicals: 0.65 V sync for 1.55 V white, so with
 // white scaled to 0.714 V the sync is 0.299 V, and the set's gain follows
@@ -109,7 +110,7 @@ composite_decoder #(
 	.SPC     (12),
 	.HCNT_W  (12),
 	.LUMA_LP (6),
-	.PIX_DIV (4),
+	.PIX_DIV (2),
 	.COMB_DLY(2730)         // 227.5 cycles x 12
 ) decoder
 (
