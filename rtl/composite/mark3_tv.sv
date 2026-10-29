@@ -105,7 +105,8 @@ cvbs_resample resample(.clk(clk), .din(enc), .ce(rs_ce), .dout(rs_comp));
 wire [15:0] bright_v = brightness == 3'd1 ? 16'hFE49 : brightness == 3'd2 ? 16'd292 :
 	brightness == 3'd3 ? 16'd643 : brightness == 3'd4 ? 16'd936 : 16'd0;
 
-wire dec_hb, dec_vb;
+wire       dec_ce, dec_hs, dec_vs, dec_hb, dec_vb;
+wire [7:0] dec_r, dec_g, dec_b;
 composite_decoder #(
 	.SPC     (12),
 	.HCNT_W  (12),
@@ -126,16 +127,33 @@ composite_decoder #(
 	.brightness   (bright_v),
 	.contrast     (ms ? 16'd3517 : 16'd2725),
 	.comb_mode    (premium ? 2'd2 : 2'd0),
-	.ce_out       (),
+	.ce_out       (dec_ce),
 	.pix_out      (pix),
-	.hs_out       (hs_out),
-	.vs_out       (vs_out),
+	.hs_out       (dec_hs),
+	.vs_out       (dec_vs),
 	.hb_out       (dec_hb),
 	.vb_out       (dec_vb),
-	.r_out        (r_out),
-	.g_out        (g_out),
-	.b_out        (b_out)
+	.r_out        (dec_r),
+	.g_out        (dec_g),
+	.b_out        (dec_b)
 );
+
+// The decoder raises pix_out one clock after the ce_out of the sample it
+// counted, and its outputs move on at the next ce. The resampler skips one
+// clock in five, so that ce sometimes falls on the clock pix_out is taken and
+// sometimes not: with a pixel every two samples, the samples taken came in
+// pairs one apart, then three, in one encoder or the other depending on the
+// resampler's phase at power-up. Holding each sample from its ce_out keeps
+// the pixels exactly two samples apart.
+reg [7:0] r_h = 0, g_h = 0, b_h = 0;
+reg       hs_h = 0, vs_h = 0, hb_h = 1, vb_h = 1;
+always @(posedge clk) if (dec_ce) begin
+	{r_h, g_h, b_h} <= {dec_r, dec_g, dec_b};
+	{hs_h, vs_h, hb_h, vb_h} <= {dec_hs, dec_vs, dec_hb, dec_vb};
+end
+assign {r_out, g_out, b_out} = {r_h, g_h, b_h};
+assign hs_out = hs_h;
+assign vs_out = vs_h;
 
 // Crop to the RGB path's picture: the source blanking, delayed by the
 // encoder + decoder latency (measured with sim/mark3/run.sh: bar edges land on their pixels), on top of
@@ -151,7 +169,7 @@ always @(posedge clk) if (pix) begin
 	hb_c <= hb_d[CROP_DLY-1];
 	vb_c <= vb_d[CROP_DLY-1];
 end
-assign hb_out = dec_hb | hb_c;
-assign vb_out = dec_vb | vb_c;
+assign hb_out = hb_h | hb_c;
+assign vb_out = vb_h | vb_c;
 
 endmodule
