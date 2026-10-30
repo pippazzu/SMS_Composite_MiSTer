@@ -36,7 +36,6 @@ set_global_assignment -name VHDL_FILE rtl/io.vhd
 set_global_assignment -name VHDL_FILE rtl/AudioMix.vhd
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mark3_cvbs.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/composite_decoder.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/cvbs_resample.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/mark3_tv.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/cxa1145.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/sms_av_board.sv

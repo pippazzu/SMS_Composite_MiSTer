@@ -1,8 +1,9 @@
 // Composite filter for the digital outputs: the VDP picture is encoded by the
 // Mark III encoder model (mark3_cvbs.sv), given the sync a MiSTer composite
 // cable would add, and decoded by Kitrinx's composite_decoder (NES_MiSTer),
-// all on clk_sys with no frame buffer. The decoded picture comes out at one
-// pixel every two decoder samples, four per SMS pixel (21.48 MHz), with sync
+// all on clk_sys with no frame buffer. The decoder takes the encoder's 15
+// samples per subcarrier cycle as they are, and the decoded picture comes out
+// at one pixel every two samples, five per SMS pixel (26.85 MHz), with sync
 // regenerated from the waveform.
 //
 // Levels follow the BA7230LS typicals: 0.65 V sync for 1.55 V white, so with
@@ -96,29 +97,25 @@ always @(posedge clk) begin
 end
 wire signed [23:0] enc = ms ? ms_d[MS_DLY-1] : comp;
 
-wire               rs_ce;
-wire signed [23:0] rs_comp;
-cvbs_resample resample(.clk(clk), .din(enc), .ce(rs_ce), .dout(rs_comp));
-
 // Brightness, Q2.13 volts, the NES_MiSTer list: Japan = black at blanking
 // (right for the Mark III), USA = a set expecting 7.5 IRE setup.
 wire [15:0] bright_v = brightness == 3'd1 ? 16'hFE49 : brightness == 3'd2 ? 16'd292 :
 	brightness == 3'd3 ? 16'd643 : brightness == 3'd4 ? 16'd936 : 16'd0;
 
-wire       dec_ce, dec_hs, dec_vs, dec_hb, dec_vb;
-wire [7:0] dec_r, dec_g, dec_b;
+wire       dec_hb, dec_vb;
 composite_decoder #(
-	.SPC     (12),
-	.HCNT_W  (12),
-	.LUMA_LP (6),
-	.PIX_DIV (2),
-	.COMB_DLY(2730)         // 227.5 cycles x 12
+	.SPC      (15),
+	.HCNT_W   (12),
+	.LUMA_LP  (8),
+	.PK_SPAN  (9),
+	.PIX_DIV  (2),
+	.COMB_HALF(6825)        // 227.5 cycles x 15 x 2
 ) decoder
 (
 	.clk          (clk),
 	.reset        (reset),
-	.ce           (rs_ce),
-	.comp         (rs_comp),
+	.ce           (1'b1),
+	.comp         (enc),
 	.sat          (8'd128),
 	.hue          (8'd0),
 	.chroma_trail (premium ? 4'd2 : 4'd3),
@@ -127,38 +124,21 @@ composite_decoder #(
 	.brightness   (bright_v),
 	.contrast     (ms ? 16'd3517 : 16'd2725),
 	.comb_mode    (premium ? 2'd2 : 2'd0),
-	.ce_out       (dec_ce),
+	.ce_out       (),
 	.pix_out      (pix),
-	.hs_out       (dec_hs),
-	.vs_out       (dec_vs),
+	.hs_out       (hs_out),
+	.vs_out       (vs_out),
 	.hb_out       (dec_hb),
 	.vb_out       (dec_vb),
-	.r_out        (dec_r),
-	.g_out        (dec_g),
-	.b_out        (dec_b)
+	.r_out        (r_out),
+	.g_out        (g_out),
+	.b_out        (b_out)
 );
-
-// The decoder raises pix_out one clock after the ce_out of the sample it
-// counted, and its outputs move on at the next ce. The resampler skips one
-// clock in five, so that ce sometimes falls on the clock pix_out is taken and
-// sometimes not: with a pixel every two samples, the samples taken came in
-// pairs one apart, then three, in one encoder or the other depending on the
-// resampler's phase at power-up. Holding each sample from its ce_out keeps
-// the pixels exactly two samples apart.
-reg [7:0] r_h = 0, g_h = 0, b_h = 0;
-reg       hs_h = 0, vs_h = 0, hb_h = 1, vb_h = 1;
-always @(posedge clk) if (dec_ce) begin
-	{r_h, g_h, b_h} <= {dec_r, dec_g, dec_b};
-	{hs_h, vs_h, hb_h, vb_h} <= {dec_hs, dec_vs, dec_hb, dec_vb};
-end
-assign {r_out, g_out, b_out} = {r_h, g_h, b_h};
-assign hs_out = hs_h;
-assign vs_out = vs_h;
 
 // Crop to the RGB path's picture: the source blanking, delayed by the
 // encoder + decoder latency (measured with sim/mark3/run.sh: bar edges land on their pixels), on top of
 // the decoder's own blanking.
-localparam CROP_DLY = 58;
+localparam CROP_DLY = 53;
 reg [CROP_DLY-1:0] hb_d = 0, vb_d = 0;
 always @(posedge clk) begin
 	hb_d <= {hb_d[CROP_DLY-2:0], hb_in};
@@ -169,7 +149,7 @@ always @(posedge clk) if (pix) begin
 	hb_c <= hb_d[CROP_DLY-1];
 	vb_c <= vb_d[CROP_DLY-1];
 end
-assign hb_out = hb_h | hb_c;
-assign vb_out = vb_h | vb_c;
+assign hb_out = dec_hb | hb_c;
+assign vb_out = dec_vb | vb_c;
 
 endmodule

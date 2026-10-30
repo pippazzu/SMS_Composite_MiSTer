@@ -20,20 +20,22 @@ python3 decode_check.py
 python3 tv_rtl.py stim
 sed -n '/^module csync/,/^endmodule/p' ../../sys/sys_top.v > csync_sim.v
 iverilog -g2012 -o tv.vvp tb_tv.sv ../../rtl/composite/mark3_tv.sv ../../rtl/composite/composite_decoder.sv \
-	../../rtl/composite/cvbs_resample.sv ../../rtl/mark3_cvbs.sv ../../rtl/composite/sms_cxa_cvbs.sv \
+	../../rtl/mark3_cvbs.sv ../../rtl/composite/sms_cxa_cvbs.sv \
 	../../rtl/composite/cxa1145.sv ../../rtl/composite/sms_av_board.sv csync_sim.v
-# comb delay: prev must be c16 exactly 2730 decoder samples (227.5 cycles) back
+# comb delay: prev must be c16 3412.5 samples back (227.5 cycles), interpolated
+# from 3411..3414 as the decoder's half_interp does
 head -300000 tv_stim.txt > tv_stim_short.txt
 sed 's/tv_stim.txt/tv_stim_short.txt/' tb_comb.sv > tb_comb_short.sv
 iverilog -g2012 -o comb.vvp tb_comb_short.sv ../../rtl/composite/mark3_tv.sv ../../rtl/composite/composite_decoder.sv \
-	../../rtl/composite/cvbs_resample.sv ../../rtl/mark3_cvbs.sv ../../rtl/composite/sms_cxa_cvbs.sv \
+	../../rtl/mark3_cvbs.sv ../../rtl/composite/sms_cxa_cvbs.sv \
 	../../rtl/composite/cxa1145.sv ../../rtl/composite/sms_av_board.sv csync_sim.v
 vvp -n comb.vvp +OPT=1 +OUT=comb_out.txt > /dev/null
 python3 -c "
 import numpy as np
 a = np.loadtxt('comb_out.txt', dtype=int); c, p = a[:, 0], a[:, 1]
-e = {D: np.mean(np.abs(p[20000:] - c[20000 - D:-D])) for D in (2729, 2730, 2731)}
-print(('PASS' if e[2730] == 0 else 'FAIL') + ' comb delay: mean |prev - c16[-D]| %s' % e)"
+h = lambda D: (9 * (c[20000 - D:-D] + c[20000 - D - 1:-D - 1]) - c[20000 - D + 1:-D + 1] - c[20000 - D - 2:-D - 2] + 8) >> 4
+e = {D: np.mean(np.abs(p[20000:] - np.clip(h(D), -32768, 32767))) for D in (3411, 3412, 3413)}
+print(('PASS' if e[3412] == 0 else 'FAIL') + ' comb delay: mean |prev - c16[-D-0.5]| %s' % e)"
 # OPT bits: [0] Premium, [2:1] sharpness, [5:3] brightness, [6] standard chroma, [7] Master System
 for opt in 0 1 128 129; do
 	vvp -n tv.vvp +OPT=$opt +OUT=out_$opt.txt > /dev/null &

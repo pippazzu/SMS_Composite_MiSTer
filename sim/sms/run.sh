@@ -10,7 +10,7 @@ set -e
 cd "$(dirname "$0")"
 python3 coeffs.py
 iverilog -g2012 -o align.vvp tb_align.sv ../../rtl/composite/mark3_tv.sv ../../rtl/composite/composite_decoder.sv \
-	../../rtl/composite/cvbs_resample.sv ../../rtl/mark3_cvbs.sv ../../rtl/composite/sms_cxa_cvbs.sv \
+	../../rtl/mark3_cvbs.sv ../../rtl/composite/sms_cxa_cvbs.sv \
 	../../rtl/composite/cxa1145.sv ../../rtl/composite/sms_av_board.sv ../mark3/csync_sim.v
 vvp -n align.vvp > /dev/null
 

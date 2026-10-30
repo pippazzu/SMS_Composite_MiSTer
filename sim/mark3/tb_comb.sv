@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 // Logs composite_decoder's comb input (c16) and delayed sample (prev) on
-// every decoder sample, to check that the comb delay is exactly COMB_DLY.
+// every decoder sample, to check that the comb delay is exactly COMB_HALF / 2.
 module tb;
 reg clk = 0;
 always #9.312 clk = ~clk;
@@ -32,7 +32,7 @@ initial begin
 		{sc, hs, vs, hb, vb} = {v[0][0], v[1][0], v[2][0], v[3][0], v[4][0]};
 		{r, g, b} = {v[5][7:0], v[6][7:0], v[7][7:0]};
 		@(posedge clk); #1;
-		if (dut.rs_ce && n > 100) $fdisplay(fo, "%0d %0d", $signed(dut.decoder.c16), $signed(dut.decoder.prev));
+		if (n > 100) $fdisplay(fo, "%0d %0d", $signed(dut.decoder.c16), $signed(dut.decoder.prev));
 		n = n + 1;
 	end
 	$finish;

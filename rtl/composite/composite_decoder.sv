@@ -5,18 +5,22 @@
 
 // Vendored from MiSTer-devel/NES_MiSTer rtl/composite_decoder.sv at 49a0a66.
 // Local changes for the SMS core (marked "SMS:"):
-//  - COMB_DLY: a fixed comb delay in samples. The Mark III line is exactly
-//    228 carrier cycles, so the upstream line-locked comb would add the
-//    chroma of adjacent lines in phase (and cancel the burst); a real set's
-//    delay line is 227.5 cycles. 0 keeps the upstream line-locked comb.
+//  - COMB_HALF: a fixed comb delay in half samples. The Mark III line is
+//    exactly 228 carrier cycles, so the upstream line-locked comb would add
+//    the chroma of adjacent lines in phase (and cancel the burst); a real
+//    set's delay line is 227.5 cycles. 0 keeps the upstream line-locked comb.
+//  - An odd SPC is accepted: the half-cycle notch delay, and an odd
+//    COMB_HALF, interpolate the half sample from the four samples around it.
+//  - PK_SPAN is a parameter.
 //  - The line store is an inferred RAM whose read is held by ce, so the comb
 //    stays aligned when ce is not every clock; no dpram dependency.
 //  - The sync tip is tracked on a one-carrier-cycle sum of comp.
 
 module composite_decoder #(
-	// Samples per subcarrier cycle. Must be EVEN, so that the notch delay
-	// SPC/2 is a whole number of samples and lands exactly half a cycle back.
-	// Pick a sample clock that is a whole multiple of the subcarrier.
+	// Samples per subcarrier cycle. When EVEN the notch delay SPC/2 is a whole
+	// number of samples and lands exactly half a cycle back; SMS: when odd it
+	// is interpolated from the four samples around the half cycle. Pick a sample
+	// clock that is a whole multiple of the subcarrier.
 	parameter SPC = 8,
 	// Line counter width. The comb's line store is 2^HCNT_W samples deep, so
 	// it must cover a whole line when the comb is used.
@@ -27,6 +31,8 @@ module composite_decoder #(
 	// the way a consumer set does. The chroma and timing paths are delayed
 	// to match.
 	parameter LUMA_LP = 1,
+	// SMS: peaking taps sit this far apart, putting the peak at fs / (2 PK_SPAN).
+	parameter PK_SPAN = SPC / 2 + 1,
 	// Decoded samples per output pixel, a power of two. The pixel enable is
 	// phase locked to the line so a scaler sees a stable grid.
 	parameter PIX_DIV = 1,
@@ -43,8 +49,9 @@ module composite_decoder #(
 	parameter signed [17:0] MAT_GQ = -18'sd166,
 	parameter signed [17:0] MAT_BI = -18'sd283,
 	parameter signed [17:0] MAT_BQ = 18'sd436,
-	// SMS: fixed comb delay in samples (227.5 cycles x SPC), 0 = line-locked.
-	parameter COMB_DLY = 0
+	// SMS: fixed comb delay in half samples (455 x SPC for 227.5 cycles),
+	// 0 = line-locked. An odd value is interpolated like an odd SPC's notch.
+	parameter COMB_HALF = 0
 )(
 	input                clk,
 	input                reset,
@@ -96,6 +103,16 @@ module composite_decoder #(
 );
 
 localparam HALFC     = SPC / 2;
+localparam ODD_SPC   = SPC % 2;
+
+// SMS: a sample half way between b and c, (-a + 9b + 9c - d) / 16. Unity at DC
+// and 0.9993 at the subcarrier for SPC 15 (a two-sample mean gives 0.978, so
+// the notch and comb would leave 1.1% of the carrier); flat to 0.01% at 2 MHz.
+function automatic logic signed [15:0] half_interp(input logic signed [15:0] a, b, c, d);
+	logic signed [21:0] t;
+	t = (22'sd9 * (22'(b) + 22'(c)) - (22'(a) + 22'(d)) + 22'sd8) >>> 4;
+	half_interp = (t > 22'sd32767) ? 16'sd32767 : (t < -22'sd32768) ? -16'sd32768 : t[15:0];
+endfunction
 localparam [31:0] PHASE_INC = 32'd16777216 / SPC;  // 2^24 per subcarrier cycle
 localparam [31:0] PHASE_FRAC = 32'd16777216 % SPC;
 localparam PHASE_REM_W = $clog2(SPC);
@@ -125,8 +142,6 @@ localparam signed [23:0] TIP_DECAY = 24'sd2;
 
 // chroma and timing paths.
 localparam LP_DLY = (LUMA_LP > 1) ? (LUMA_LP + 2) / 2 : 0;
-// Peaking taps sit this far apart, putting the peak near 3 MHz.
-localparam PK_SPAN = SPC / 2 + 1;
 localparam ALIGN_DLY = LP_DLY + PK_SPAN;
 localparam [31:0] LP_RECIP = 32'd65536 / LUMA_LP;
 localparam [31:0] MIN_MAG2 = 32'd16384;
@@ -172,12 +187,12 @@ end else if (ce) begin
 	sync_d <= sync_l;
 end
 
-// SMS: a sync must stay below the slice for SYNC_MIN samples (0.37 us at
-// SPC 12), like a set's sync integrator. The Mark III's square-wave chroma
+// SMS: a sync must stay below the slice for SYNC_MIN samples (0.37 us), like
+// a set's sync integrator. The Mark III's square-wave chroma
 // on saturated reds dips about 0.3 V below blanking for a fraction of a
 // carrier cycle, which the bare slice took for sync. line_start, and so all
 // the gates timed from it, comes SYNC_MIN samples after the leading edge.
-localparam SYNC_MIN = 16;
+localparam SYNC_MIN = SPC * 4 / 3;   // 16 at SPC 12, 20 at SPC 15
 logic [4:0] sync_run;
 always_ff @(posedge clk) if (reset) sync_run <= 5'd0;
 else if (ce) sync_run <= ~sync_l ? 5'd0 : (sync_run == 5'd31) ? sync_run : sync_run + 5'd1;
@@ -249,7 +264,7 @@ end
 
 logic [HCNT_W-1:0] hcnt_d;
 logic signed [15:0] prev;
-logic [15:0] ram_rd;
+logic [15:0] ram_rd, ram_rd_d, ram_rd_d2, ram_rd_d3;
 
 wire  [HCNT_W:0]   comb_ahead = {1'b0, hcnt} + 1'b1;
 wire  [HCNT_W-1:0] comb_rd = (comb_ahead >= {1'b0, line_len}) ?
@@ -259,7 +274,9 @@ wire  [HCNT_W-1:0] comb_rd = (comb_ahead >= {1'b0, line_len}) ?
 logic [15:0] linebuf [0:(1 << HCNT_W) - 1];
 initial for (int i = 0; i < (1 << HCNT_W); i++) linebuf[i] = 16'd0;
 generate
-	if (COMB_DLY > 0) begin : comb_fixed
+	if (COMB_HALF > 0) begin : comb_fixed
+		// An odd COMB_HALF reads one sample nearer, for the interpolator's first tap.
+		localparam COMB_DLY = COMB_HALF / 2 - COMB_HALF % 2;
 		logic [HCNT_W-1:0] comb_wp = '0;
 		wire  [HCNT_W-1:0] comb_fr = comb_wp - HCNT_W'(COMB_DLY - 2);   // c16 written here is one sample old
 		always_ff @(posedge clk) if (ce) begin
@@ -275,23 +292,34 @@ generate
 	end
 endgenerate
 
+// ram_rd is c16 COMB_DLY samples back, the _d registers one, two and three
+// further: an odd COMB_HALF lands half way between ram_rd_d and ram_rd_d2.
+wire signed [15:0] comb_prev = (COMB_HALF % 2) ?
+	half_interp($signed(ram_rd), $signed(ram_rd_d), $signed(ram_rd_d2), $signed(ram_rd_d3)) : $signed(ram_rd);
+
 logic [1:0] lines_seen;
 
 always_ff @(posedge clk) if (reset) begin
 	hcnt_d <= {HCNT_W{1'b0}};
+	{ram_rd_d, ram_rd_d2, ram_rd_d3} <= '0;
 	prev <= 16'sd0;
 	lines_seen <= 2'd0;
 end else if (ce) begin
 	hcnt_d <= hcnt;
-	prev   <= (lines_seen == 2'd3) ? $signed(ram_rd) : c16;
+	{ram_rd_d, ram_rd_d2, ram_rd_d3} <= {ram_rd, ram_rd_d, ram_rd_d2};
+	prev   <= (lines_seen == 2'd3) ? comb_prev : c16;
 	if (line_start && lines_seen != 2'd3) lines_seen <= lines_seen + 2'd1;
 end
 
 
-logic [HALFC-1:0][15:0] nd;
+// nd[i] is c16 i + 1 samples back; an odd SPC needs two more for the interpolator.
+localparam ND_LEN = HALFC + 2 * ODD_SPC;
+logic [ND_LEN-1:0][15:0] nd;
 logic signed [15:0] yc, cc, yc_d, y_lp;
 
-wire signed [15:0] c_del = $signed(nd[HALFC-1]);
+wire signed [15:0] c_del = ODD_SPC ?
+	half_interp($signed(nd[ND_LEN-4]), $signed(nd[ND_LEN-3]), $signed(nd[ND_LEN-2]), $signed(nd[ND_LEN-1])) :
+	$signed(nd[HALFC-1]);
 /* verilator lint_off UNUSEDSIGNAL */
 wire signed [16:0] n_sum = c16 + c_del;     // notch luma
 wire signed [16:0] n_dif = c16 - c_del;     // notch chroma
@@ -332,7 +360,7 @@ always_ff @(posedge clk) if (reset) begin
 	yc_d <= 16'sd0;
 	y_lp <= 16'sd0;
 end else if (ce) begin
-	nd    <= {nd[HALFC-2:0], c16};
+	nd    <= {nd[ND_LEN-2:0], c16};
 	dbuf  <= {dbuf[SPC-2:0], v_abs};
 	dacc  <= dacc_n;
 	alpha <= alpha_n;
