@@ -28,9 +28,9 @@ Based on Kitrinx's NES core implementation, built from Sega's schematics and the
 
 Options, in **Audio & Video**:
 
-* **Composite Filter**: Off / Budget TV (notch filter, softer colour) / Premium TV (comb filter, sharper colour).
+* **Composite Filter**: Budget TV (default; notch filter, softer colour) / Premium TV (comb filter, sharper colour) / Off.
 * **Comp. Brightness**: Japan (the console's own black) / USA (a US set: the darkest shades crush to black) / More / Much More / Too Much.
-* **Comp. Sharpness**: Off / Low / Medium / High (the TV's sharpness knob).
+* **Comp. Sharpness**: Medium (default) / High / Off / Low (the TV's sharpness knob).
 * **Comp. Encoder**: Mark III (BA7230LS) / Master System (CXA1145).
 
 The filter is for 15 kHz RGB CRTs and HDMI, and only for NTSC: it is greyed out for Game Gear, PAL and rotated System E games. While it is on, the scandoubler and HQ2x are bypassed. Nothing is removed from the main core.

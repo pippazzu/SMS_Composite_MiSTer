@@ -236,9 +236,9 @@ parameter CONF_STR = {
 	"d6P1oJM,Crop Offset,0,2,4,8,10,12,-12,-10,-8,-6,-4,-2;",
 	"P1OUV,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"P1-;",
-	"DBP1O[113:112],Composite Filter,Off,Budget TV,Premium TV;",
+	"DBP1O[113:112],Composite Filter,Budget TV,Premium TV,Off;",
 	"DAP1O[116:114],Comp. Brightness,Japan,USA,More,Much More,Too Much;",
-	"DAP1O[118:117],Comp. Sharpness,Off,Low,Medium,High;",
+	"DAP1O[118:117],Comp. Sharpness,Medium,High,Off,Low;",
 	"DAP1O[119],Comp. Encoder,Mark III,Master System;",
 	"P1-;",
 	"D2P1OD,Border,No,Yes;",
@@ -1644,8 +1644,14 @@ wire [3:0] mix_b  = gun_px ? 4'h0 : vid_b;
 // it shows on HDMI and analog RGB alike. NTSC SMS only: no Game Gear (LCD),
 // no PAL (the Mark III has none), not with the picture rotated. The decoded
 // stream is four pixels per SMS pixel, so the scandoubler and HQ2x stay off.
+// MiSTer status bits default to 0, so the stored values are arranged to make
+// 0 the default setting: Composite Filter 0 Budget TV, 1 Premium TV, 2 Off;
+// Comp. Sharpness stored XOR 2, so 0 Medium, 1 High, 2 Off, 3 Low.
+wire       comp_filter_on  = (status[113:112] == 2'd0) || (status[113:112] == 2'd1);
+wire       comp_premium    = (status[113:112] == 2'd1);
+wire [1:0] comp_sharpness  = status[118:117] ^ 2'd2;  // 0 Off .. 3 High
 assign composite_available = ~pal & ~gg_video & no_rotate;
-assign use_composite = (status[113:112] != 2'd0) && composite_available;
+assign use_composite = comp_filter_on && composite_available;
 
 wire       tv_pix, tv_hs, tv_vs, tv_hb, tv_vb;
 wire [7:0] tv_r, tv_g, tv_b;
@@ -1656,9 +1662,9 @@ mark3_tv mark3_tv
 	.sc_ref    (ce_cpu),        // the Mark III subcarrier is the Z80 clock
 	.chroma_std(1'b0),          // BA7230LS typical levels, as the console
 	.ms        (status[119]),
-	.premium   (status[113:112] == 2'd2),
+	.premium   (comp_premium),
 	.brightness(status[116:114]),
-	.sharpness (status[118:117]),
+	.sharpness (comp_sharpness),
 	.r_in      ({2{mix_r}}),
 	.g_in      ({2{mix_g}}),
 	.b_in      ({2{mix_b}}),
