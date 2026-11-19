@@ -262,7 +262,7 @@ parameter CONF_STR = {
 	"D4P2OL,Gun Port,Port1,Port2;",
 	"D4P2OMN,Cross,Small,Medium,Big,None;",
 	"P2-;",
-	"P2o56,Paddle Control,Disabled,Paddle,Joy;",
+	"P2o56,Paddle Control,Disabled,Paddle,Joy,Mouse;",
 	"P2-;",
 	"P2oP,SK-1100,Off,On;",
 	"P2-;",
@@ -444,6 +444,8 @@ wire [31:0] joy_0, joy_1, joy_2, joy_3;
 wire  [7:0] joy[4];
 wire  [7:0] joy0_x,joy0_y,joy1_x,joy1_y;
 wire  [7:0] paddle_0, paddle_1;
+wire  [7:0] paddle_0_src;   // paddle 1 after the Mouse option
+wire        paddle_mouse;
 wire  [1:0] buttons;
 wire [10:0] ps2_key;
 wire [127:0] status;
@@ -1425,7 +1427,7 @@ sega_controller controller_p2
 
 wire has_pedal = SYSMODE[0][3];
 wire [7:0] pedal = paddle_en ? paddle_1 : !joy0_y[7] ? 8'h00: {~joy0_y[6:0],~joy0_y[6]};
-wire [7:0] paddlein = paddle_en ? paddle_0 : has_pedal ? {~joy0_x[7],joy0_x[6:0]} : {joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7:5]};
+wire [7:0] paddlein = paddle_en ? paddle_0_src : has_pedal ? {~joy0_x[7],joy0_x[6:0]} : {joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7:5]};
 wire [7:0] paddle2 = paddle_en ? paddle_1 : joy1_x;
 wire [7:0] pedallimit = paddlein[7:5]==3'b111 ? 8'hE0 : paddlein[7:5]==3'b000 ? 8'h20 : paddlein;
 wire [7:0] paddle = has_pedal ? pedallimit : paddlein;
@@ -1515,6 +1517,7 @@ always @(posedge clk_sys) begin
 	if (paddle_en) begin
 		{joya[0], joya[1], joya[2], joya[3], joya[5]} <= {paddle_0_nib, paddle_0_tr};
 		{joyb[0], joyb[1], joyb[2], joyb[3], joyb[5]} <= {paddle_1_nib, paddle_1_tr};
+		if (paddle_mouse) joya[4] <= ~(joy[0][4] | ps2_mouse[0]);
 	end
 end
 
@@ -1870,7 +1873,24 @@ lightgun lightgun
 // Paddle support
 wire       jp_region    = status[10];
 wire       paddle_en    = status[37] | status[38];
-wire       paddle_joy   = status[38];
+wire       paddle_joy   = (status[38:37] == 2'd2);
+assign     paddle_mouse = (status[38:37] == 2'd3);
+
+// Mouse as paddle 1 (e.g. Megumi Rescue): horizontal movement turns the
+// knob, the left button is the paddle's button. Four mouse counts per
+// paddle step, so the full 0-255 travel is about 1024 counts.
+reg  [9:0] mouse_pos = 10'h200;
+reg        mouse_tog;
+always_ff @(posedge clk_sys) begin
+	reg [10:0] next;
+	mouse_tog <= ps2_mouse[24];
+	if (mouse_tog != ps2_mouse[24]) begin
+		next = {1'b0, mouse_pos} + {{2{ps2_mouse[4]}}, ps2_mouse[15:8]};
+		if (next[10]) mouse_pos <= ps2_mouse[4] ? 10'd0 : 10'h3FF;
+		else          mouse_pos <= next[9:0];
+	end
+end
+assign paddle_0_src = paddle_mouse ? mouse_pos[9:2] : paddle_0;
 
 reg  [3:0] paddle_0_nib,   paddle_1_nib;
 reg  [3:0] paddle_0_nib_q, paddle_1_nib_q;
@@ -1889,7 +1909,7 @@ always_ff @(posedge clk_sys) begin
 					{paddle_0_nib_q, paddle_0_nib} <= {~joy0_x[7], joy0_x[6:0]};
 					{paddle_1_nib_q, paddle_1_nib} <= {~joy1_x[7], joy1_x[6:0]};
 				end else begin
-					{paddle_0_nib_q, paddle_0_nib} <= paddle_0;
+					{paddle_0_nib_q, paddle_0_nib} <= paddle_0_src;
 					{paddle_1_nib_q, paddle_1_nib} <= paddle_1;
 				end
 				paddle_0_tr  <= 1'b0;
@@ -1910,7 +1930,7 @@ always_ff @(posedge clk_sys) begin
 			if (paddle_joy) begin
 				{paddle_0_nib_q, paddle_0_nib} <= {~joy0_x[7], joy0_x[6:0]};
 			end else begin
-				{paddle_0_nib_q, paddle_0_nib} <= paddle_0;
+				{paddle_0_nib_q, paddle_0_nib} <= paddle_0_src;
 			end
 			paddle_0_tr  <= 1'b0;
 		end else if (joya_th_rise) begin
