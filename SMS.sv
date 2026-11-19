@@ -447,6 +447,7 @@ wire  [7:0] joy0_x,joy0_y,joy1_x,joy1_y;
 wire  [7:0] paddle_0, paddle_1;
 wire  [7:0] paddle_0_src;   // paddle 1 after the Mouse option
 wire        paddle_mouse;
+wire  [7:0] dial_mouse;     // System E dial (uPD4701) from the mouse, per frame
 wire  [1:0] buttons;
 wire [10:0] ps2_key;
 wire [127:0] status;
@@ -1428,7 +1429,7 @@ sega_controller controller_p2
 
 wire has_pedal = SYSMODE[0][3];
 wire [7:0] pedal = paddle_en ? paddle_1 : !joy0_y[7] ? 8'h00: {~joy0_y[6:0],~joy0_y[6]};
-wire [7:0] paddlein = paddle_en ? paddle_0_src : has_pedal ? {~joy0_x[7],joy0_x[6:0]} : {joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7:5]};
+wire [7:0] paddlein = paddle_en ? ((paddle_mouse & systeme & ~has_pedal) ? dial_mouse : paddle_0_src) : has_pedal ? {~joy0_x[7],joy0_x[6:0]} : {joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7:5]};
 wire [7:0] paddle2 = paddle_en ? paddle_1 : joy1_x;
 wire [7:0] pedallimit = paddlein[7:5]==3'b111 ? 8'hE0 : paddlein[7:5]==3'b000 ? 8'h20 : paddlein;
 wire [7:0] paddle = has_pedal ? pedallimit : paddlein;
@@ -1897,6 +1898,35 @@ always_ff @(posedge clk_sys) begin
 	end
 end
 assign paddle_0_src = paddle_mouse ? mouse_pos[11:4] : paddle_0;
+
+// System E dial games (Megumi Rescue, Riddle of Pythagoras) read a uPD4701
+// quadrature counter that the game clears after each read, so they want
+// movement, not a position. The core models it like its joystick fallback:
+// a signed speed held for the frame, {sign x4, speed[3:0]}, -8..7. The mouse
+// movement of each frame is summed in 1/16 units (same sensitivity scale as
+// above) and the remainder carried into the next frame.
+reg signed [9:0] dial_acc;
+reg  [3:0] dial_k;
+reg        dial_tog, dial_vb;
+always_ff @(posedge clk_sys) begin
+	reg signed [10:0] sum;
+	reg signed [5:0]  k;
+	reg signed [10:0] rest;
+	dial_tog <= ps2_mouse[24];
+	dial_vb  <= VBlank;
+	sum = dial_acc;
+	if (dial_tog != ps2_mouse[24])
+		sum = sum + ($signed({{2{ps2_mouse[4]}}, ps2_mouse[4], ps2_mouse[15:8]}) <<< mouse_shift);
+	if (VBlank & ~dial_vb) begin
+		k = (sum > 11'sd127) ? 6'sd7 : (sum < -11'sd128) ? -6'sd8 : sum[9:4];
+		dial_k <= k[3:0];
+		rest = sum - (k <<< 4);
+		sum  = (rest > 11'sd15) ? 11'sd15 : (rest < -11'sd16) ? -11'sd16 : rest;
+	end
+	dial_acc <= (sum > 11'sd511) ? 10'sd511 : (sum < -11'sd512) ? -10'sd512 : sum[9:0];
+	if (~paddle_mouse) dial_acc <= 0;
+end
+assign dial_mouse = {{4{dial_k[3]}}, dial_k};
 
 reg  [3:0] paddle_0_nib,   paddle_1_nib;
 reg  [3:0] paddle_0_nib_q, paddle_1_nib_q;
