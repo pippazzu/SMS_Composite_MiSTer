@@ -263,6 +263,7 @@ parameter CONF_STR = {
 	"D4P2OMN,Cross,Small,Medium,Big,None;",
 	"P2-;",
 	"P2o56,Paddle Control,Disabled,Paddle,Joy,Mouse;",
+	"P2O[121:120],Mouse Sensitivity,Medium,High,Max,Low;",
 	"P2-;",
 	"P2oP,SK-1100,Off,On;",
 	"P2-;",
@@ -1877,20 +1878,25 @@ wire       paddle_joy   = (status[38:37] == 2'd2);
 assign     paddle_mouse = (status[38:37] == 2'd3);
 
 // Mouse as paddle 1 (e.g. Megumi Rescue): horizontal movement turns the
-// knob, the left button is the paddle's button. Four mouse counts per
-// paddle step, so the full 0-255 travel is about 1024 counts.
-reg  [9:0] mouse_pos = 10'h200;
+// knob, the left button is the paddle's button. Mouse Sensitivity sets the
+// mouse counts per paddle step: Medium 4 (default), High 2, Max 1, Low 8.
+// The position is kept in 1/16 steps (12 bits for the 0-255 travel).
+wire [1:0] mouse_sens  = status[121:120];
+wire [2:0] mouse_shift = (mouse_sens == 2'd3) ? 3'd1 : {1'b0, mouse_sens} + 3'd2;
+reg [11:0] mouse_pos = 12'h800;
 reg        mouse_tog;
 always_ff @(posedge clk_sys) begin
-	reg [10:0] next;
+	reg signed [13:0] dx, next;
 	mouse_tog <= ps2_mouse[24];
 	if (mouse_tog != ps2_mouse[24]) begin
-		next = {1'b0, mouse_pos} + {{2{ps2_mouse[4]}}, ps2_mouse[15:8]};
-		if (next[10]) mouse_pos <= ps2_mouse[4] ? 10'd0 : 10'h3FF;
-		else          mouse_pos <= next[9:0];
+		dx   = $signed({{5{ps2_mouse[4]}}, ps2_mouse[4], ps2_mouse[15:8]}) <<< mouse_shift;
+		next = $signed({2'b00, mouse_pos}) + dx;
+		if (next < 0)            mouse_pos <= 12'd0;
+		else if (next > 14'sd4095) mouse_pos <= 12'hFFF;
+		else                     mouse_pos <= next[11:0];
 	end
 end
-assign paddle_0_src = paddle_mouse ? mouse_pos[9:2] : paddle_0;
+assign paddle_0_src = paddle_mouse ? mouse_pos[11:4] : paddle_0;
 
 reg  [3:0] paddle_0_nib,   paddle_1_nib;
 reg  [3:0] paddle_0_nib_q, paddle_1_nib_q;

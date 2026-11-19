@@ -17,7 +17,7 @@ This fork adds the console's composite video: the picture a Mark III or an NTSC 
 * Extended Game Gear Resolution Option
 * Z80 Turbo Option
 * Lightgun, Paddle controls, Keyboard(SK-1100) and Multitap Support
-* Paddle Control **Mouse**: the mouse drives paddle 1 (e.g. Megumi Rescue). Moving it left and right turns the knob, and the left button is the paddle button.
+* Paddle Control **Mouse**: the mouse drives paddle 1 (e.g. Megumi Rescue). Moving it left and right turns the knob, and the left button is the paddle button. **Mouse Sensitivity**: Medium (default, 4 mouse counts per paddle step) / High (2) / Max (1) / Low (8).
 * Independent SMS, Mega Drive 3-button and 6-button controller emulation per port
 * Gear to Gear link cable over USERIO
 * BIOS Loading Support
