@@ -17,6 +17,7 @@ This fork adds the console's composite video: the picture a Mark III or an NTSC 
 * Extended Game Gear Resolution Option
 * Z80 Turbo Option
 * Lightgun, Paddle controls, Keyboard(SK-1100) and Multitap Support
+* Paddle Control **Mouse**: the mouse drives paddle 1. Moving it left and right turns the knob, and the left button is the paddle button. For the System E dial games (Megumi Rescue, Riddle of Pythagoras), whose arcade dial reports movement rather than position, the mouse movement of each frame is sent as the dial's speed. **Mouse Sensitivity**: Medium (default, 4 mouse counts per paddle step) / High (2) / Max (1) / Low (8).
 * Independent SMS, Mega Drive 3-button and 6-button controller emulation per port
 * Gear to Gear link cable over USERIO
 * BIOS Loading Support
@@ -28,9 +29,9 @@ Based on Kitrinx's NES core implementation, built from Sega's schematics and the
 
 Options, in **Audio & Video**:
 
-* **Composite Filter**: Off / Budget TV (notch filter, softer colour) / Premium TV (comb filter, sharper colour).
+* **Composite Filter**: Budget TV (default; notch filter, softer colour) / Premium TV (comb filter, sharper colour) / Off.
 * **Comp. Brightness**: Japan (the console's own black) / USA (a US set: the darkest shades crush to black) / More / Much More / Too Much.
-* **Comp. Sharpness**: Off / Low / Medium / High (the TV's sharpness knob).
+* **Comp. Sharpness**: Medium (default) / High / Off / Low (the TV's sharpness knob).
 * **Comp. Encoder**: Mark III (BA7230LS) / Master System (CXA1145).
 
 The filter is for 15 kHz RGB CRTs and HDMI, and only for NTSC: it is greyed out for Game Gear, PAL and rotated System E games. While it is on, the scandoubler and HQ2x are bypassed. Nothing is removed from the main core.

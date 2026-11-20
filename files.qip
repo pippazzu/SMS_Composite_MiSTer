@@ -41,3 +41,4 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/cxa1145.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/sms_av_board.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/composite/sms_cxa_cvbs.sv
 set_global_assignment -name SYSTEMVERILOG_FILE SMS.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/opll_snapshot.sv

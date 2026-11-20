@@ -39,6 +39,9 @@ assign BUTTONS   = osd_btn;
 assign VGA_SCALER= 0;
 assign VGA_DISABLE = 0;
 wire ss_freeze;
+wire [7:0] ss_fm_addr;
+wire [31:0] ss_fm_rdata, ss_fm_wdata;
+wire ss_fm_read, ss_fm_write, ss_fm_initialized, ss_fm_legacy_reset, ss_fm_initialization_run;
 reg  ss_freeze_r;
 always @(posedge clk_sys) begin
 	ss_freeze_r <= ss_freeze;
@@ -233,9 +236,9 @@ parameter CONF_STR = {
 	"d6P1oJM,Crop Offset,0,2,4,8,10,12,-12,-10,-8,-6,-4,-2;",
 	"P1OUV,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"P1-;",
-	"DBP1O[113:112],Composite Filter,Off,Budget TV,Premium TV;",
+	"DBP1O[113:112],Composite Filter,Budget TV,Premium TV,Off;",
 	"DAP1O[116:114],Comp. Brightness,Japan,USA,More,Much More,Too Much;",
-	"DAP1O[118:117],Comp. Sharpness,Off,Low,Medium,High;",
+	"DAP1O[118:117],Comp. Sharpness,Medium,High,Off,Low;",
 	"DAP1O[119],Comp. Encoder,Mark III,Master System;",
 	"P1-;",
 	"D2P1OD,Border,No,Yes;",
@@ -259,7 +262,8 @@ parameter CONF_STR = {
 	"D4P2OL,Gun Port,Port1,Port2;",
 	"D4P2OMN,Cross,Small,Medium,Big,None;",
 	"P2-;",
-	"P2o56,Paddle Control,Disabled,Paddle,Joy;",
+	"P2o56,Paddle Control,Disabled,Paddle,Joy,Mouse;",
+	"P2O[121:120],Mouse Sensitivity,Medium,High,Max,Low;",
 	"P2-;",
 	"P2oP,SK-1100,Off,On;",
 	"P2-;",
@@ -441,6 +445,9 @@ wire [31:0] joy_0, joy_1, joy_2, joy_3;
 wire  [7:0] joy[4];
 wire  [7:0] joy0_x,joy0_y,joy1_x,joy1_y;
 wire  [7:0] paddle_0, paddle_1;
+wire  [7:0] paddle_0_src;   // paddle 1 after the Mouse option
+wire        paddle_mouse;
+wire  [7:0] dial_mouse;     // System E dial (uPD4701) from the mouse, per frame
 wire  [1:0] buttons;
 wire [10:0] ps2_key;
 wire [127:0] status;
@@ -977,7 +984,10 @@ wire  [7:0] ss_nvram_WD;   // DMA write data
 system #(63) system
 (
 	.clk_sys(clk_sys),
-	.ss_freeze(ss_freeze),
+	.fm_state_addr(ss_fm_addr), .fm_state_read(ss_fm_read), .fm_state_write(ss_fm_write),
+    .fm_state_wdata(ss_fm_wdata), .fm_state_rdata(ss_fm_rdata), .fm_initialized(ss_fm_initialized),
+    .fm_legacy_reset(ss_fm_legacy_reset), .fm_initialization_run(ss_fm_initialization_run),
+    .ss_freeze(ss_freeze),
 	.ce_cpu(ss_freeze ? 1'b0 : (ce_cpu & ~se_pause_gate)),
 	.ce_vdp(ss_freeze ? 1'b0 : ce_vdp),
 	.ce_pix(ss_freeze ? 1'b0 : ce_pix),
@@ -1208,7 +1218,10 @@ savestates savestates_inst (
 	.ss_slot         (ss_slot),
 	.ss_bios_mode    (ss_bios_mode),
 	.ss_game_id      (ss_game_id),
-	.ss_freeze       (ss_freeze),
+	.fm_state_addr(ss_fm_addr), .fm_state_read(ss_fm_read), .fm_state_write(ss_fm_write),
+    .fm_state_wdata(ss_fm_wdata), .fm_state_rdata(ss_fm_rdata), .fm_initialized(ss_fm_initialized),
+    .fm_legacy_reset(ss_fm_legacy_reset), .fm_initialization_run(ss_fm_initialization_run),
+    .ss_freeze(ss_freeze),
 	.vblank          (VBlank),
 	.x               (x),
 	// Z80
@@ -1286,6 +1299,8 @@ savestates savestates_inst (
 	.nvram_WD        (ss_nvram_WD),
 	// System E mode (enables VDP2/PSG2/VRAM2 save-restore)
 	.systeme         (systeme),
+	.sc3000_mode     (sc3000_en),
+	.eeprom_present  (eeprom_active),
 	// VDP2 registers (System E)
 	.vdp2_regs       (ss_vdp2_regs),
 	.vdp2_regs_in    (ss_vdp2_regs_in),
@@ -1414,7 +1429,7 @@ sega_controller controller_p2
 
 wire has_pedal = SYSMODE[0][3];
 wire [7:0] pedal = paddle_en ? paddle_1 : !joy0_y[7] ? 8'h00: {~joy0_y[6:0],~joy0_y[6]};
-wire [7:0] paddlein = paddle_en ? paddle_0 : has_pedal ? {~joy0_x[7],joy0_x[6:0]} : {joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7:5]};
+wire [7:0] paddlein = paddle_en ? ((paddle_mouse & systeme & ~has_pedal) ? dial_mouse : paddle_0_src) : has_pedal ? {~joy0_x[7],joy0_x[6:0]} : {joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7],joy0_x[7:5]};
 wire [7:0] paddle2 = paddle_en ? paddle_1 : joy1_x;
 wire [7:0] pedallimit = paddlein[7:5]==3'b111 ? 8'hE0 : paddlein[7:5]==3'b000 ? 8'h20 : paddlein;
 wire [7:0] paddle = has_pedal ? pedallimit : paddlein;
@@ -1504,6 +1519,7 @@ always @(posedge clk_sys) begin
 	if (paddle_en) begin
 		{joya[0], joya[1], joya[2], joya[3], joya[5]} <= {paddle_0_nib, paddle_0_tr};
 		{joyb[0], joyb[1], joyb[2], joyb[3], joyb[5]} <= {paddle_1_nib, paddle_1_tr};
+		if (paddle_mouse) joya[4] <= ~(joy[0][4] | ps2_mouse[0]);
 	end
 end
 
@@ -1633,8 +1649,14 @@ wire [3:0] mix_b  = gun_px ? 4'h0 : vid_b;
 // it shows on HDMI and analog RGB alike. NTSC SMS only: no Game Gear (LCD),
 // no PAL (the Mark III has none), not with the picture rotated. The decoded
 // stream is four pixels per SMS pixel, so the scandoubler and HQ2x stay off.
+// MiSTer status bits default to 0, so the stored values are arranged to make
+// 0 the default setting: Composite Filter 0 Budget TV, 1 Premium TV, 2 Off;
+// Comp. Sharpness stored XOR 2, so 0 Medium, 1 High, 2 Off, 3 Low.
+wire       comp_filter_on  = (status[113:112] == 2'd0) || (status[113:112] == 2'd1);
+wire       comp_premium    = (status[113:112] == 2'd1);
+wire [1:0] comp_sharpness  = status[118:117] ^ 2'd2;  // 0 Off .. 3 High
 assign composite_available = ~pal & ~gg_video & no_rotate;
-assign use_composite = (status[113:112] != 2'd0) && composite_available;
+assign use_composite = comp_filter_on && composite_available;
 
 wire       tv_pix, tv_hs, tv_vs, tv_hb, tv_vb;
 wire [7:0] tv_r, tv_g, tv_b;
@@ -1645,9 +1667,9 @@ mark3_tv mark3_tv
 	.sc_ref    (ce_cpu),        // the Mark III subcarrier is the Z80 clock
 	.chroma_std(1'b0),          // BA7230LS typical levels, as the console
 	.ms        (status[119]),
-	.premium   (status[113:112] == 2'd2),
+	.premium   (comp_premium),
 	.brightness(status[116:114]),
-	.sharpness (status[118:117]),
+	.sharpness (comp_sharpness),
 	.r_in      ({2{mix_r}}),
 	.g_in      ({2{mix_g}}),
 	.b_in      ({2{mix_b}}),
@@ -1853,7 +1875,58 @@ lightgun lightgun
 // Paddle support
 wire       jp_region    = status[10];
 wire       paddle_en    = status[37] | status[38];
-wire       paddle_joy   = status[38];
+wire       paddle_joy   = (status[38:37] == 2'd2);
+assign     paddle_mouse = (status[38:37] == 2'd3);
+
+// Mouse as paddle 1 (e.g. Megumi Rescue): horizontal movement turns the
+// knob, the left button is the paddle's button. Mouse Sensitivity sets the
+// mouse counts per paddle step: Medium 4 (default), High 2, Max 1, Low 8.
+// The position is kept in 1/16 steps (12 bits for the 0-255 travel).
+wire [1:0] mouse_sens  = status[121:120];
+wire [2:0] mouse_shift = (mouse_sens == 2'd3) ? 3'd1 : {1'b0, mouse_sens} + 3'd2;
+reg [11:0] mouse_pos = 12'h800;
+reg        mouse_tog;
+always_ff @(posedge clk_sys) begin
+	reg signed [13:0] dx, next;
+	mouse_tog <= ps2_mouse[24];
+	if (mouse_tog != ps2_mouse[24]) begin
+		dx   = $signed({{5{ps2_mouse[4]}}, ps2_mouse[4], ps2_mouse[15:8]}) <<< mouse_shift;
+		next = $signed({2'b00, mouse_pos}) + dx;
+		if (next < 0)            mouse_pos <= 12'd0;
+		else if (next > 14'sd4095) mouse_pos <= 12'hFFF;
+		else                     mouse_pos <= next[11:0];
+	end
+end
+assign paddle_0_src = paddle_mouse ? mouse_pos[11:4] : paddle_0;
+
+// System E dial games (Megumi Rescue, Riddle of Pythagoras) read a uPD4701
+// quadrature counter that the game clears after each read, so they want
+// movement, not a position. The core models it like its joystick fallback:
+// a signed speed held for the frame, {sign x4, speed[3:0]}, -8..7. The mouse
+// movement of each frame is summed in 1/16 units (same sensitivity scale as
+// above) and the remainder carried into the next frame.
+reg signed [9:0] dial_acc;
+reg  [3:0] dial_k;
+reg        dial_tog, dial_vb;
+always_ff @(posedge clk_sys) begin
+	reg signed [10:0] sum;
+	reg signed [5:0]  k;
+	reg signed [10:0] rest;
+	dial_tog <= ps2_mouse[24];
+	dial_vb  <= VBlank;
+	sum = dial_acc;
+	if (dial_tog != ps2_mouse[24])
+		sum = sum + ($signed({{2{ps2_mouse[4]}}, ps2_mouse[4], ps2_mouse[15:8]}) <<< mouse_shift);
+	if (VBlank & ~dial_vb) begin
+		k = (sum > 11'sd127) ? 6'sd7 : (sum < -11'sd128) ? -6'sd8 : sum[9:4];
+		dial_k <= k[3:0];
+		rest = sum - (k <<< 4);
+		sum  = (rest > 11'sd15) ? 11'sd15 : (rest < -11'sd16) ? -11'sd16 : rest;
+	end
+	dial_acc <= (sum > 11'sd511) ? 10'sd511 : (sum < -11'sd512) ? -10'sd512 : sum[9:0];
+	if (~paddle_mouse) dial_acc <= 0;
+end
+assign dial_mouse = {{4{dial_k[3]}}, dial_k};
 
 reg  [3:0] paddle_0_nib,   paddle_1_nib;
 reg  [3:0] paddle_0_nib_q, paddle_1_nib_q;
@@ -1872,7 +1945,7 @@ always_ff @(posedge clk_sys) begin
 					{paddle_0_nib_q, paddle_0_nib} <= {~joy0_x[7], joy0_x[6:0]};
 					{paddle_1_nib_q, paddle_1_nib} <= {~joy1_x[7], joy1_x[6:0]};
 				end else begin
-					{paddle_0_nib_q, paddle_0_nib} <= paddle_0;
+					{paddle_0_nib_q, paddle_0_nib} <= paddle_0_src;
 					{paddle_1_nib_q, paddle_1_nib} <= paddle_1;
 				end
 				paddle_0_tr  <= 1'b0;
@@ -1893,7 +1966,7 @@ always_ff @(posedge clk_sys) begin
 			if (paddle_joy) begin
 				{paddle_0_nib_q, paddle_0_nib} <= {~joy0_x[7], joy0_x[6:0]};
 			end else begin
-				{paddle_0_nib_q, paddle_0_nib} <= paddle_0;
+				{paddle_0_nib_q, paddle_0_nib} <= paddle_0_src;
 			end
 			paddle_0_tr  <= 1'b0;
 		end else if (joya_th_rise) begin
